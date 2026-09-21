@@ -25,9 +25,9 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/setup-node@v4
+    - uses: actions/setup-node@v7
       with:
-        node-version: 20
+        node-version: 24
     - name: Build semlint
       shell: bash
       working-directory: ${{ github.action_path }}
