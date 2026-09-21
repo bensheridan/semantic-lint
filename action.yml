@@ -1,0 +1,48 @@
+name: Semantic Lint
+description: Ask TypeSafe (Jev) yes/no policy questions about each changed hunk in a pull request.
+inputs:
+  typesafe-api-key:
+    description: TypeSafe API key. Pass it from a repository secret.
+    required: true
+  rules:
+    description: Path to the rules file, relative to the repository root.
+    default: .semantic-lint.yml
+  base:
+    description: Base commit to diff against.
+    default: ${{ github.event.pull_request.base.sha }}
+  head:
+    description: Head commit to diff.
+    default: ${{ github.event.pull_request.head.sha }}
+  rules-ref:
+    description: >-
+      Git ref to read the rules file from, for example the PR base commit, so a pull request cannot
+      weaken its own gate by editing the rules. Leave empty to read the checked-out file. The file
+      must exist at that ref.
+    default: ""
+  fail-on:
+    description: "Which violation severity fails the job: error, warning or none."
+    default: error
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+    - name: Build semlint
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: npm ci --no-audit --no-fund && npm run build
+    - name: Run semlint
+      shell: bash
+      # Inputs go through env vars, never interpolated into the script, so they cannot inject commands.
+      env:
+        TYPESAFE_API_KEY: ${{ inputs.typesafe-api-key }}
+        SEMLINT_RULES: ${{ inputs.rules }}
+        SEMLINT_BASE: ${{ inputs.base }}
+        SEMLINT_HEAD: ${{ inputs.head }}
+        SEMLINT_FAIL_ON: ${{ inputs.fail-on }}
+        SEMLINT_RULES_REF: ${{ inputs.rules-ref }}
+      run: |
+        args=(--rules "$SEMLINT_RULES" --base "$SEMLINT_BASE" --head "$SEMLINT_HEAD" --fail-on "$SEMLINT_FAIL_ON")
+        if [ -n "$SEMLINT_RULES_REF" ]; then args+=(--rules-ref "$SEMLINT_RULES_REF"); fi
+        node "$GITHUB_ACTION_PATH/dist/cli.js" "${args[@]}"

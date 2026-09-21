@@ -1,0 +1,30 @@
+{
+  "name": "semantic-lint",
+  "version": "0.1.0",
+  "description": "Semantic policy linter: asks TypeSafe (Jev) yes/no questions about each diff hunk, one per rule.",
+  "type": "module",
+  "bin": {
+    "semlint": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "pretest": "npm run build"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@typesafe-ai/sdk": "^0.6.0",
+    "js-yaml": "^5.4.2",
+    "picomatch": "^4.0.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "@types/picomatch": "^4.0.3",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1"
+  },
+  "private": true
+}

@@ -1,0 +1,270 @@
+# Labeled cases for Family hustle. Cases marked (real) are copied from the repository and are
+# correct code that merely looks risky. Those are the near-misses where false positives hide.
+# The rest are violations I wrote in the project's style. They are not from the repo's history:
+# the repo currently has essentially no violations of its own rules.
+
+cases:
+  # ---------------- no-data-egress ----------------
+  - name: posts family data to an analytics endpoint
+    file: src/state/store.tsx
+    violates: [no-data-egress]
+    code: |
+      useEffect(() => {
+        fetch('https://api.usageinsights.io/v1/track', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ people: state.people, entries: state.entries }),
+        });
+      }, [state]);
+
+  - name: uploads the saved state to a hosted backend
+    file: src/state/store.tsx
+    violates: [no-data-egress]
+    code: |
+      async function pushToCloud(state: State, familyId: string) {
+        await fetch(`https://sync.hostedfamily.app/families/${familyId}`, {
+          method: 'PUT',
+          body: JSON.stringify(state),
+        });
+      }
+
+  - name: (real) fetches the app's own version.json
+    file: src/lib/version.ts
+    code: |
+      export async function deployedBuildId(): Promise<string | undefined> {
+        try {
+          const res = await fetch(`${__BASE_URL__}version.json`, { cache: 'no-store' });
+          if (!res.ok) return undefined;
+          const data: unknown = await res.json();
+          const id = (data as { build?: unknown }).build;
+          return typeof id === 'string' ? id : undefined;
+        } catch {
+          return undefined;
+        }
+      }
+
+  - name: downloads a backup to the device
+    file: src/routes/Data.tsx
+    code: |
+      const download = () => {
+        const blob = new Blob([serialise(state)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'family-hustle-backup.json';
+        a.click();
+        URL.revokeObjectURL(url);
+      };
+
+  # ---------------- local-time-only ----------------
+  - name: date key built with toISOString
+    file: src/routes/Calendar.tsx
+    violates: [local-time-only]
+    code: |
+      const todayKey = new Date().toISOString().slice(0, 10);
+      const isToday = (day: ISODate) => day === todayKey;
+
+  - name: date string parsed as UTC midnight
+    file: src/domain/occurrences.ts
+    violates: [local-time-only]
+    code: |
+      function weekdayOf(startDate: ISODate): number {
+        const d = new Date(startDate);
+        return d.getDay();
+      }
+
+  - name: (real) savedAt timestamp in a backup file
+    file: src/domain/backup.ts
+    code: |
+      export function makeBackup(state: State): Backup {
+        return {
+          app: 'family-hustle',
+          format: BACKUP_FORMAT,
+          savedAt: new Date().toISOString(),
+          state,
+        };
+      }
+
+  # ---------------- no-custody-tracking ----------------
+  - name: counts nights per household
+    file: src/domain/care.ts
+    violates: [no-custody-tracking]
+    code: |
+      export function nightsInMonth(schedule: CareSchedule, householdId: Id, month: ISODate): number {
+        let nights = 0;
+        for (let i = 0; i < 31; i++) {
+          if (householdOn(schedule, addDays(month, i)) === householdId) nights++;
+        }
+        return nights;
+      }
+
+  - name: logs who did each handover
+    file: src/components/CareBits.tsx
+    violates: [no-custody-tracking]
+    code: |
+      function markHandoverDone(handoverId: Id, byPersonId: Id) {
+        dispatch({
+          type: 'logHandover',
+          entry: { handoverId, doneBy: byPersonId, at: Date.now() },
+        });
+      }
+
+  - name: derives where a child is from the cycle
+    file: src/domain/care.ts
+    code: |
+      export function householdOn(schedule: CareSchedule, date: ISODate): Id {
+        const len = schedule.cycle.length;
+        const i = ((diffDays(date, schedule.anchor) % len) + len) % len;
+        return schedule.cycle[i];
+      }
+
+  # ---------------- no-case-forcing-user-text ----------------
+  - name: lowercases the title on save
+    file: src/routes/Add.tsx
+    violates: [no-case-forcing-user-text]
+    code: |
+      const entry: EventEntry = {
+        id: newId(),
+        type: 'event',
+        title: form.title.trim().toLowerCase(),
+        category: form.category,
+      };
+
+  - name: uppercases a child's name when displaying it
+    file: src/routes/KidProfile.tsx
+    violates: [no-case-forcing-user-text]
+    code: |
+      <h1 className="kid__name">{person.name.toUpperCase()}</h1>
+
+  - name: (real) lowercases text only to find a month name
+    file: src/domain/rosterImport.ts
+    code: |
+      function monthIndexIn(text: string): number | undefined {
+        const m = text.toLowerCase().match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/);
+        return m ? MONTH_NAMES.indexOf(m[1]) : undefined;
+      }
+
+  - name: (real) lowercases a month name for a filename
+    file: src/routes/Fridge.tsx
+    code: |
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `family-hustle-${monthName(month).toLowerCase()}.png`;
+      a.click();
+
+  # ---------------- assumes-family-setup ----------------
+  - name: work tab shown to every family
+    file: src/components/TabBar.tsx
+    violates: [assumes-family-setup]
+    before: |
+      const right = [
+        { to: '/kids', label: 'kids', icon: 'kids' },
+        ...(workers.length > 0 ? [{ to: '/work', label: 'work', icon: 'work' }] : []),
+        { to: '/more', label: 'more', icon: 'more' },
+      ];
+    code: |
+      const right = [
+        { to: '/kids', label: 'kids', icon: 'kids' },
+        { to: '/work', label: 'work', icon: 'work' },
+        { to: '/more', label: 'more', icon: 'more' },
+      ];
+
+  - name: shared care preselected in onboarding
+    file: src/routes/Onboarding.tsx
+    violates: [assumes-family-setup]
+    code: |
+      const [setup, setSetup] = useState<Setup>('sharedCare');
+
+  - name: (real) work tab only once someone works shifts
+    file: src/components/TabBar.tsx
+    code: |
+      // The work tab only exists once someone in the family actually works shifts.
+      const right = [
+        { to: '/kids', label: 'kids', icon: 'kids' },
+        ...(workers.length > 0 ? [{ to: '/work', label: 'work', icon: 'work' }] : []),
+        { to: '/more', label: 'more', icon: 'more' },
+      ];
+
+  - name: nothing preselected in onboarding
+    file: src/routes/Onboarding.tsx
+    code: |
+      // Shared care is one option among four. It is never preselected.
+      const [setup, setSetup] = useState<Setup | undefined>(undefined);
+
+  # ---------------- derived-entry-editable-or-stored ----------------
+  - name: removes the check that hides edit for derived entries
+    file: src/components/EntrySheet.tsx
+    violates: [derived-entry-editable-or-stored]
+    before: |
+      <div style={entry.derived ? { display: 'none' } : undefined}>
+    code: |
+      <div>
+
+  - name: saves a birthday as an ordinary entry
+    file: src/routes/Add.tsx
+    violates: [derived-entry-editable-or-stored]
+    code: |
+      function savePerson(person: Person) {
+        dispatch({ type: 'addPerson', person });
+        dispatch({
+          type: 'addEntry',
+          entry: {
+            id: newId(),
+            type: 'event',
+            title: `${person.name}’s birthday`,
+            startDate: person.birthday!,
+            recurrence: { kind: 'yearly' },
+          },
+        });
+      }
+
+  - name: (real) birthdays generated from profiles
+    file: src/domain/birthdays.ts
+    code: |
+      export function birthdayEntries(people: Person[]): EventEntry[] {
+        return people
+          .filter((p) => p.birthday)
+          .map((person) => ({
+            id: `birthday:${person.id}`,
+            type: 'event' as const,
+            title: `${person.name}’s birthday`,
+            category: 'family' as const,
+            personIds: [person.id],
+            visibility: 'everyone' as const,
+            startDate: person.birthday!,
+            allDay: true,
+            recurrence: { kind: 'yearly' as const },
+            exceptions: [],
+            remindDaysBefore: BIRTHDAY_LEAD_DAYS,
+            derived: 'birthday' as const,
+            createdAt: 0,
+          }));
+      }
+
+  # ---------------- interface-copy-lowercase ----------------
+  - name: title-case button and heading
+    file: src/routes/Add.tsx
+    violates: [interface-copy-lowercase]
+    code: |
+      <h1 className="add__title">What Are You Adding?</h1>
+      <button type="button" className="btn btn--primary">Add Event</button>
+
+  - name: capitalised placeholder and hint
+    file: src/routes/Add.tsx
+    violates: [interface-copy-lowercase]
+    code: |
+      <input className="field" placeholder="Enter a title" />
+      <p className="hint">Tap a day to add something.</p>
+
+  - name: lowercase copy with proper nouns kept
+    file: src/routes/KidProfile.tsx
+    code: |
+      <h2 className="kid__week">{person.name}’s week</h2>
+      <button type="button" className="btn">add activity for {person.name}</button>
+      <p className="hint">swimming at The Hive on Monday</p>
+
+  - name: brand name capitalised as designed
+    file: src/routes/Onboarding.tsx
+    code: |
+      <h1 className="welcome__brand">Family hustle</h1>
+      <p className="welcome__sub">everything your family needs, in one place</p>

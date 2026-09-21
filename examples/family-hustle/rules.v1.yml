@@ -1,0 +1,96 @@
+# Rules for Family hustle, taken from the "rules this code enforces" section of its README and
+# the header comments in src/domain. Each rule is one yes/no question about a diff hunk.
+# The project is a local-first family organiser that holds children's data, so the two most
+# important rules are no-data-egress and no-custody-tracking.
+
+thresholds:
+  violation: 0.70
+  possible: 0.35
+
+exclude:
+  - "**/*.css"
+  - "docs/**"
+  - "**/*.md"
+  - "**/*.json"
+  - "scripts/**"
+
+rules:
+  - id: no-data-egress
+    title: Family data sent off the device
+    description: >-
+      The added code sends the family's data (names, children's details, events, schedules,
+      settings or the saved state) to any server, analytics or tracking service, email link, or
+      third party over the network. This app keeps everything in the browser and promises that
+      nothing the family types is sent anywhere. Requesting the app's own static files (for
+      example fetching version.json to check the deployed build) does NOT count, and neither does
+      saving or downloading a file to the user's own device.
+    severity: error
+    triggers: ["fetch", "XMLHttpRequest", "sendBeacon", "WebSocket", "EventSource", "axios", "gtag", "analytics", "navigator\\.share", "mailto:", "window\\.open"]
+
+  - id: local-time-only
+    title: Calendar date or time passed through UTC
+    description: >-
+      The added code converts a calendar date or time of day that the user sees, enters or stores
+      through UTC: toISOString(), getUTC*/setUTC*, Date.UTC, or new Date('YYYY-MM-DD') string
+      parsing (which is read as UTC midnight). This app stores dates as local 'YYYY-MM-DD' and
+      'HH:mm' so a 6pm shift is always 6pm. A timestamp used only as bookkeeping metadata, such as
+      a "saved at" time in a backup file, that is never shown as a calendar date does NOT count.
+    severity: error
+    triggers: ["toISOString", "getUTC", "setUTC", "Date\\.UTC", "Date\\.parse", "new Date\\(\\s*['\"`]", "new Date\\(\\s*[A-Za-z_][\\w.]*\\s*\\)", "UTC", "toUTCString", "timeZone"]
+
+  - id: no-custody-tracking
+    title: Shared care turned into a record
+    description: >-
+      The added code makes shared care behave like custody software: it records who did a handover
+      or pickup, counts or totals nights or days per parent or household, keeps a history or log of
+      where children were, or produces evidence or fairness statistics. Shared care in this app is
+      only a schedule. Working out where a child is on a given day from the repeating cycle, or
+      deriving handovers from it, does NOT count.
+    severity: error
+    triggers: ["night", "care", "handover", "custody", "count", "history", "log", "evidence", "household"]
+
+  - id: no-case-forcing-user-text
+    title: Case forced on text the family typed
+    description: >-
+      The added code changes the capitalisation of a name or title the user typed (a person's
+      name, an event title, a school or activity name), when storing it or displaying it, using
+      toLowerCase, toUpperCase, capitalisation helpers, or CSS text-transform. Names and titles must
+      be stored and shown exactly as typed. Changing case on text the app itself authored, on month
+      or weekday names, on a generated filename, or only to compare or search text does NOT count.
+    severity: error
+    triggers: ["toLowerCase", "toUpperCase", "capitali[sz]e", "text-transform", "textTransform", "toLocaleLowerCase", "toLocaleUpperCase"]
+
+  - id: assumes-family-setup
+    title: UI assumes a family setup the family did not choose
+    description: >-
+      The added code shows a screen, tab, option, filter or copy that assumes shared care, several
+      households, separated parents or shift work, without first checking that this family has
+      turned that on, or it preselects shared care in onboarding. The app must adapt to the
+      family: the work tab only exists once someone works shifts, and shared care is absent until
+      switched on and never preselected.
+    severity: warning
+    paths: ["src/routes/**", "src/components/**", "src/App.tsx"]
+    triggers: ["shared", "household", "shift", "work", "custody", "handover", "separated", "co-?parent"]
+
+  - id: derived-entry-editable-or-stored
+    title: Derived entry stored or made editable
+    description: >-
+      The added code stores a birthday, public holiday or handover as an ordinary saved entry, or
+      gives such an entry an edit or delete control (or removes the check that hides those controls
+      for derived entries). Birthdays come from the person's profile, holidays from the holiday
+      list and handovers from the care cycle, so they are generated, never stored or edited.
+    severity: warning
+    triggers: ["birthday", "holiday", "handover", "derived", "delete", "remove", "edit"]
+
+  - id: interface-copy-lowercase
+    title: Interface copy not in lowercase
+    description: >-
+      The added code contains user-facing interface text (button labels, headings, placeholders,
+      menu items, hints) written with a capital first letter or in Title Case where a proper noun
+      is not involved. Interface copy in this app is lowercase, for example "add event", "your
+      week", "what are you adding?". Proper nouns keep their capitals (people's names, months,
+      weekdays, place names, and the brand "Family hustle"). Code identifiers, comments and text
+      that is data rather than interface copy do NOT count.
+    severity: warning
+    paths: ["src/routes/**", "src/components/**", "src/App.tsx"]
+    triggers: [">\\s*[A-Z][a-z]", "['\"`][A-Z][a-z]+[ '\"`]", "label=['\"][A-Z]", "placeholder=['\"][A-Z]"]

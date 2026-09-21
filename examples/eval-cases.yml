@@ -1,0 +1,153 @@
+# Labeled examples for `semlint eval`. Each case is a snippet added as a new file.
+# `before` (optional) is the previous version, shown as removed lines; use it for rules about
+# changed behavior. `violates` lists the rule ids the snippet breaks; omit it for clean code.
+#
+# These are seed cases. Replace or extend them with real snippets from your own history:
+# the point of the trial is measuring precision and recall on YOUR rules and YOUR code.
+# Include near-misses (code that looks risky but is fine); they are where false positives hide.
+
+cases:
+  # --- no-secrets-in-output ---
+  - name: logs the raw token
+    file: src/auth/login.ts
+    violates: [no-secrets-in-output]
+    code: |
+      export async function login(user: string, token: string) {
+        logger.info(`login attempt for ${user} with token ${token}`);
+        return verify(token);
+      }
+
+  - name: returns the password hash in the response
+    file: src/api/users.ts
+    violates: [no-secrets-in-output]
+    code: |
+      app.get("/users/:id", async (req, res) => {
+        const user = await db.users.findById(req.params.id);
+        res.json({ id: user.id, email: user.email, password: user.password });
+      });
+
+  - name: logs only that a token was missing
+    file: src/auth/login.ts
+    code: |
+      export async function login(user: string, token?: string) {
+        if (!token) {
+          logger.warn(`login for ${user} rejected: token missing`);
+          return null;
+        }
+        return verify(token);
+      }
+
+  - name: logs a user id
+    file: src/api/users.ts
+    code: |
+      app.get("/users/:id", async (req, res) => {
+        logger.info(`fetching user ${req.params.id}`);
+        res.json(await db.users.findById(req.params.id));
+      });
+
+  # --- no-hardcoded-credentials ---
+  - name: hardcoded database password
+    file: src/db/connect.ts
+    violates: [no-hardcoded-credentials]
+    code: |
+      export const pool = new Pool({
+        host: "db.internal",
+        user: "admin",
+        password: "Sup3rS3cretProdPw!2024",
+      });
+
+  - name: password from environment
+    file: src/db/connect.ts
+    code: |
+      export const pool = new Pool({
+        host: process.env.DB_HOST,
+        user: process.env.DB_USER,
+        password: process.env.DB_PASSWORD,
+      });
+
+  - name: obvious placeholder
+    file: src/config.example.ts
+    code: |
+      export const config = {
+        apiKey: "<your-api-key-here>",
+      };
+
+  # --- query-in-loop ---
+  - name: one query per order
+    file: src/orders/report.ts
+    violates: [query-in-loop]
+    code: |
+      export async function totals(orderIds: string[]) {
+        const out = [];
+        for (const id of orderIds) {
+          const rows = await db.query("SELECT * FROM line_items WHERE order_id = $1", [id]);
+          out.push(sum(rows));
+        }
+        return out;
+      }
+
+  - name: single batched query, loop is in memory
+    file: src/orders/report.ts
+    code: |
+      export async function totals(orderIds: string[]) {
+        const rows = await db.query("SELECT * FROM line_items WHERE order_id = ANY($1)", [orderIds]);
+        const byOrder = groupBy(rows, (r) => r.order_id);
+        return orderIds.map((id) => sum(byOrder[id] ?? []));
+      }
+
+  # --- swallowed-exception ---
+  - name: empty catch
+    file: src/jobs/sync.ts
+    violates: [swallowed-exception]
+    code: |
+      async function sync() {
+        try {
+          await pushToWarehouse(records);
+        } catch (err) {
+        }
+      }
+
+  - name: catch that logs and rethrows
+    file: src/jobs/sync.ts
+    code: |
+      async function sync() {
+        try {
+          await pushToWarehouse(records);
+        } catch (err) {
+          logger.error("warehouse push failed", err);
+          throw err;
+        }
+      }
+
+  - name: documented harmless ignore
+    file: src/jobs/cleanup.ts
+    code: |
+      async function removeTempFile(path: string) {
+        try {
+          await fs.unlink(path);
+        } catch {
+          // The file may already be gone; nothing to clean up in that case.
+        }
+      }
+
+  # --- api-behavior-change-without-contract ---
+  - name: renames a response field
+    file: src/api/users.ts
+    violates: [api-behavior-change-without-contract]
+    before: |
+      app.get("/users/:id", async (req, res) => {
+        const user = await db.users.findById(req.params.id);
+        res.json({ id: user.id, name: user.name });
+      });
+    code: |
+      app.get("/users/:id", async (req, res) => {
+        const user = await db.users.findById(req.params.id);
+        res.json({ id: user.id, fullName: user.name });
+      });
+
+  - name: adds a new endpoint
+    file: src/api/users.ts
+    code: |
+      app.get("/users/:id/preferences", async (req, res) => {
+        res.json(await db.preferences.forUser(req.params.id));
+      });

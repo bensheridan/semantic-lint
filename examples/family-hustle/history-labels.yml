@@ -1,0 +1,64 @@
+# Reviewed verdicts on the violation-band findings from running rules.yml over the last 28 commits
+# of family-hustle (first review, original rule wording). Judged by reading the code against the
+# project README. Only the violation band was reviewed, not the "possible" band.
+#
+# Use:  semlint eval-history examples/family-hustle/history-labels.yml \
+#         --repo <path to family-hustle> --rules examples/family-hustle/rules.yml
+#
+# Split: "tune" is the older half, used to change the rules. "validate" is the newer half, held
+# back until the rules were changed. Caveat: all 28 commits' findings had already been read once
+# before this split, so validate is a weak holdout, not a clean one.
+
+sets:
+  validate:   # newer 14
+    - b509308
+    - bf49681
+    - 3307fde
+    - 4b93646
+    - d0088d9
+    - 943fc93
+    - ac4c35d
+    - 4f452af
+    - a49912a
+    - 0dd5d2b
+    - 74148c9
+    - 723aff4
+    - 8d9ffcf
+    - c1f947c
+  tune:       # older 14
+    - 55fa267
+    - 99dfa19
+    - ad4f344
+    - 9020053
+    - 3279d3c
+    - 4cea6ff
+    - e9f8a58
+    - 2a3fc18
+    - 6ce0699
+    - 338c255
+    - 12d0941
+    - c92837e
+    - ebfb9e6
+    - abc9d7f
+
+genuine:
+  - {commit: 723aff4, file: src/domain/holidays.ts, rule: local-time-only}   # new Date(h.date) UTC parse; diffDays exists
+
+falsePositive:
+  - {commit: e9f8a58, file: src/routes/Fridge.tsx, rule: assumes-family-setup}        # filter default; guard is at line 67
+  - {commit: e9f8a58, file: src/App.tsx, rule: assumes-family-setup}                  # route registration
+  - {commit: abc9d7f, file: src/App.tsx, rule: assumes-family-setup}                  # route registration
+  - {commit: 4cea6ff, file: src/components/CareBits.tsx, rule: interface-copy-lowercase}  # lowercase strings / a comment
+  - {commit: 723aff4, file: src/state/store.tsx, rule: derived-entry-editable-or-stored}   # the holiday LIST is stored by design
+  - {commit: b509308, file: src/state/store.tsx, rule: derived-entry-editable-or-stored}   # handover time/place on the schedule
+  - {commit: b509308, file: src/state/store.tsx, rule: no-custody-tracking}                # same action type
+  - {commit: b509308, file: src/routes/Households.tsx, rule: derived-entry-editable-or-stored}  # same, in the form
+  - {commit: b509308, file: src/types.ts, rule: derived-entry-editable-or-stored}          # optional handoverTime/handoverPlace fields (surfaced at p=0.70 on re-run; reviewed later)
+  - {commit: 723aff4, file: src/routes/Year.tsx, rule: derived-entry-editable-or-stored}   # only displays the holiday list, no edit controls (surfaced on re-run; reviewed later)
+
+  - {commit: e9f8a58, file: src/routes/KidProfile.tsx, rule: assumes-family-setup}        # care section shown only if schedule, which is careEnabled-gated 50 lines earlier
+  - {commit: abc9d7f, file: src/routes/Calendar.tsx, rule: assumes-family-setup}          # handovers are careEnabled-gated at line 77
+  - {commit: 74148c9, file: src/components/EntrySheet.tsx, rule: derived-entry-editable-or-stored}  # buttons are inside the entry.derived display:none guard, which is in the hunk
+
+unverified:
+  - {commit: abc9d7f, file: src/routes/Add.tsx, rule: assumes-family-setup}  # could not confirm whether the field is gated

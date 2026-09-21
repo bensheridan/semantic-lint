@@ -1,0 +1,69 @@
+# Rules for `semlint`. Each rule becomes one yes/no question about each diff hunk.
+#
+# Write `description` as the exact condition that counts as a violation. Include what does NOT
+# count when confusion is likely. The model only sees the hunk, so rules that need code outside
+# the hunk (for example "the docs were not updated") will be unreliable.
+#
+# Optional per rule:
+#   paths / exclude  globs limiting which files the rule is asked about
+#   triggers         regexes; the rule is only asked about hunks whose added lines match one
+#                    (a cheap code-side gate that also cuts cost)
+#   message          text for the report; {title} and {id} are substituted
+#   severity         error (fails the run) or warning (reported, does not fail)
+
+thresholds:
+  violation: 0.70   # at or above: reported as a violation
+  possible: 0.35    # at or above: reported as "possible", never fails the run
+
+exclude:
+  - "**/*.test.*"
+  - "**/__tests__/**"
+
+rules:
+  - id: no-secrets-in-output
+    title: Secret or personal data written to logs, errors or responses
+    description: >-
+      The added code writes a password, API key, access token, session cookie, private key, or
+      personal data (email, phone number, address, national ID) to a log statement, error message,
+      exception text, or API/HTTP response. Logging only an identifier, a boolean, or the fact that
+      a token was present or missing does NOT count.
+    severity: error
+    triggers: ["log", "console\\.", "print", "throw", "error", "res\\.", "response", "return"]
+
+  - id: no-hardcoded-credentials
+    title: Hardcoded credential
+    description: >-
+      The added code contains a real-looking password, API key, token, or private key as a string
+      literal or constant. Placeholders such as "changeme", "xxx", "<your-key>", empty strings, or
+      values read from environment variables or a secret manager do NOT count.
+    severity: error
+
+  - id: query-in-loop
+    title: Database or network call inside a loop
+    description: >-
+      The added code performs a database query or a network/API request once per iteration of a
+      loop (for, while, forEach, map, or similar), where the calls could be batched into one query
+      or request. A single call before or after the loop does NOT count.
+    severity: warning
+    paths: ["src/**"]
+    triggers: ["for\\s*\\(", "while\\s*\\(", "forEach", "\\.map\\(", "for\\s+\\w+\\s+in"]
+
+  - id: swallowed-exception
+    title: Exception swallowed without handling
+    description: >-
+      The added code catches an exception or error and neither rethrows it, logs it, returns or
+      records an error, nor otherwise handles it (for example an empty catch block, or a catch that
+      only continues). Deliberately ignoring a specific, documented, harmless error with a comment
+      explaining why does NOT count.
+    severity: error
+    triggers: ["catch", "except", "rescue", "recover"]
+
+  - id: api-behavior-change-without-contract
+    title: Public API behavior changed
+    description: >-
+      The added or changed lines alter what a public HTTP endpoint or exported public function
+      accepts or returns (renamed or removed field, changed status code, changed parameter type,
+      removed route) in a way an existing caller could break. Adding a new optional field or a new
+      endpoint does NOT count.
+    severity: warning
+    paths: ["src/**", "api/**"]
