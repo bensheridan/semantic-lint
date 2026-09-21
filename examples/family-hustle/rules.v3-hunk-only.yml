@@ -2,10 +2,6 @@
 # the header comments in src/domain. Each rule is one yes/no question about a diff hunk.
 # The project is a local-first family organiser that holds children's data, so the two most
 # important rules are no-data-egress and no-custody-tracking.
-#
-# assumes-family-setup and derived-entry-editable-or-stored use `context: file`: whether a control
-# is guarded usually depends on code elsewhere in the file. See rules.v3-hunk-only.yml for the same
-# wording without file context, and the README for the measured difference and cost.
 
 thresholds:
   violation: 0.70
@@ -78,7 +74,6 @@ rules:
       the unguarded rendering is visible in the hunk itself. Registering a route, declaring a
       default value for filter or form state, and type or state declarations do NOT count, because
       they show nothing to the family by themselves.
-    context: file
     severity: warning
     paths: ["src/routes/**", "src/components/**", "src/App.tsx"]
     triggers: ["shared", "household", "shift", "work", "custody", "handover", "separated", "co-?parent"]
@@ -95,7 +90,6 @@ rules:
       care schedule (it describes the derived handover and is not a handover entry); code that only
       displays birthdays, holidays or handovers with no edit or delete control; and type or state
       declarations for profile or schedule data.
-    context: file
     severity: warning
     triggers: ["birthday", "holiday", "handover", "derived", "delete", "remove", "edit"]
 

@@ -11,7 +11,8 @@ const result: LintResult = {
     scores: [],
     failures: [{ file: "src/d.ts", startLine: 5, error: "boom" }],
     truncated: [{ file: "src/e.ts", startLine: 1 }],
-    stats: { hunks: 5, hunksJudged: 4, requests: 5, questions: 9 },
+    contextNotes: [{ file: "src/f.ts", startLine: 7, note: "file context unavailable; judged on the hunk only" }],
+    stats: { hunks: 5, hunksJudged: 4, requests: 5, fileContextRequests: 1, questions: 9, inputTokens: 1200, outputTokens: 40 },
 };
 
 describe("formatGithubAnnotations", () => {
@@ -26,12 +27,13 @@ describe("formatGithubAnnotations", () => {
     it("escapes special characters so workflow commands cannot be broken or injected", () => {
         expect(lines[0]).toContain("title=Title%3A with%2C punctuation::");
         expect(lines[0]).toContain("bad 100%25%0Anewline");
-        expect(formatGithubAnnotations(result).split("\n")).toHaveLength(5);
+        expect(formatGithubAnnotations(result).split("\n")).toHaveLength(6);
     });
 
-    it("surfaces unjudged and truncated hunks", () => {
+    it("surfaces unjudged and truncated hunks and reduced context", () => {
         expect(lines[3]).toContain("hunk not judged");
-        expect(lines[4]).toContain("hunk truncated");
+        expect(lines[4]).toContain("reduced context");
+        expect(lines[5]).toContain("hunk truncated");
     });
 });
 
@@ -40,6 +42,9 @@ describe("formatText / formatMarkdownSummary", () => {
         const text = formatText(result);
         expect(text).toContain("2 violation(s), 1 possible, 1 hunk(s) not judged");
         expect(text).toContain("NOT JUDGED src/d.ts:5");
+        expect(text).toContain("NOTE src/f.ts:7  file context unavailable");
+        expect(text).toContain("Tokens: 1200 in, 40 out.");
+        expect(text).toContain("1 with file context");
         expect(formatMarkdownSummary(result)).toContain("### Not judged");
     });
 });

@@ -46,6 +46,13 @@ describe("cli", () => {
         expect(r.out).toContain("Would send 1 request(s)");
     });
 
+    it("dry-run shows which rules would carry a whole file", () => {
+        writeFileSync(join(dir, "ctx-rules.yml"), 'rules:\n  - {id: near, description: d, triggers: ["password"]}\n  - {id: far, description: d, context: file, triggers: ["password"]}\n');
+        const r = run(["--rules", join(dir, "ctx-rules.yml"), "--diff-file", join(dir, "change.diff"), "--dry-run"]);
+        expect(r.out).toContain("-> near (+whole file: far)");
+        expect(r.out).toContain("Would send 2 request(s) (1 carrying a whole file)");
+    });
+
     it("reads a diff from stdin", () => {
         const r = run(["--rules", join(dir, "rules.yml"), "--diff-file", "-", "--dry-run"], { input: DIFF });
         expect(r.code).toBe(0);

@@ -2,6 +2,7 @@
 import { execFileSync } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
 import { parseDiff, triggerText } from "./diff.js";
+import { dirFileReader, gitFileReader, type FileReader } from "./context.js";
 import { loadRules, parseRules, applicableRules, RulesError, type Severity } from "./rules.js";
 import { createClient, exitCode, lintHunks } from "./lint.js";
 import { formatGithubAnnotations, formatJson, formatMarkdownSummary, formatText } from "./report.js";
@@ -21,6 +22,8 @@ Diff source (first match wins):
 
 Options:
   --rules <path>                  Rules file (default .semantic-lint.yml)
+  --file-root <dir>               With --diff-file: read whole files for "context: file" rules from this
+                                  checkout (with --base/--head they come from git at the head ref)
   --rules-ref <ref>               Read the rules file from this git ref instead of the working tree,
                                   so a PR cannot weaken its own gate (use the base commit)
   --format text|json|github       Output format (default: github inside GitHub Actions, else text)
@@ -103,6 +106,14 @@ function readDiff(args: Args): string {
     });
 }
 
+/** Where "context: file" rules get whole files: git at the head ref, or a checkout given by --file-root. */
+function fileReader(args: Args): FileReader | undefined {
+    const root = str(args, "file-root");
+    if (root) return dirFileReader(root);
+    if (str(args, "diff-file")) return undefined;
+    return gitFileReader(undefined, str(args, "head") ?? "HEAD");
+}
+
 function readRules(args: Args) {
     const path = str(args, "rules") ?? ".semantic-lint.yml";
     const ref = str(args, "rules-ref");
@@ -168,7 +179,7 @@ async function main(): Promise<number> {
                 maxBuffer: 256 * 1024 * 1024,
             });
         };
-        console.log(formatHistoryEval(await runHistoryEval(createClient(), ruleSet, loadHistoryLabels(labelsPath), diffFor)));
+        console.log(formatHistoryEval(await runHistoryEval(createClient(), ruleSet, loadHistoryLabels(labelsPath), diffFor, (commit) => gitFileReader(repo, commit))));
         return 0;
     }
 
@@ -177,14 +188,19 @@ async function main(): Promise<number> {
     if (args.flags.has("dry-run")) {
         let questions = 0;
         let requests = 0;
+        let fileRequests = 0;
         for (const h of hunks) {
             const rules = applicableRules(ruleSet, h.file, triggerText(h));
             if (rules.length === 0) continue;
-            requests++;
+            const hunkRules = rules.filter((r) => r.context !== "file");
+            const fileRules = rules.filter((r) => r.context === "file");
+            requests += (hunkRules.length > 0 ? 1 : 0) + (fileRules.length > 0 ? 1 : 0);
+            fileRequests += fileRules.length > 0 ? 1 : 0;
             questions += rules.length;
-            console.log(`${h.file}:${h.startLine}-${h.endLine}  ${h.truncated ? "(truncated) " : ""}-> ${rules.map((r) => r.id).join(", ")}`);
+            const plan = [hunkRules.map((r) => r.id).join(", "), fileRules.length ? `(+whole file: ${fileRules.map((r) => r.id).join(", ")})` : ""].filter(Boolean).join(" ");
+            console.log(`${h.file}:${h.startLine}-${h.endLine}  ${h.truncated ? "(truncated) " : ""}-> ${plan}`);
         }
-        console.log(`\nWould send ${requests} request(s) with ${questions} question(s) for ${hunks.length} hunk(s). Nothing was sent.`);
+        console.log(`\nWould send ${requests} request(s) (${fileRequests} carrying a whole file) with ${questions} question(s) for ${hunks.length} hunk(s). Nothing was sent.`);
         return 0;
     }
 
@@ -192,6 +208,7 @@ async function main(): Promise<number> {
         concurrency,
         maxHunks,
         context: prContext(),
+        fileContext: fileReader(args),
     });
 
     if (format === "json") {

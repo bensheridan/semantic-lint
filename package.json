@@ -26,5 +26,6 @@
     "typescript": "^7.0.2",
     "vitest": "^5.0.1"
   },
-  "private": true
+  "private": true,
+  "license": "MIT"
 }

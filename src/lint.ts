@@ -1,5 +1,6 @@
 import { TypeSafeClient, noul, type Questions } from "@typesafe-ai/sdk";
 import { triggerText, type Hunk } from "./diff.js";
+import { DEFAULT_MAX_FILE_CHARS, renderFileContext, type FileReader } from "./context.js";
 import { applicableRules, type Rule, type RuleSet, type Severity, type Thresholds } from "./rules.js";
 
 export type Band = "violation" | "possible" | "clear";
@@ -38,13 +39,16 @@ export interface LintResult {
     failures: HunkFailure[];
     /** Hunks whose text was cut to the size budget, so part of the change was not judged. */
     truncated: { file: string; startLine: number }[];
-    stats: { hunks: number; hunksJudged: number; requests: number; questions: number };
+    /** Where a "context: file" rule got less than the whole file, so it judged with reduced context. */
+    contextNotes: { file: string; startLine: number; note: string }[];
+    stats: { hunks: number; hunksJudged: number; requests: number; fileContextRequests: number; questions: number; inputTokens: number; outputTokens: number };
 }
 
 /** Minimal surface of the SDK used here, so tests can inject a fake. */
 export interface SystemOneCaller {
     systemOne(request: { state: unknown; questions: Questions }): Promise<{
         answers: Record<string, { type: string; noul?: number }>;
+        usage?: { input_tokens?: number; output_tokens?: number };
     }>;
 }
 
@@ -63,17 +67,22 @@ export function classify(probability: number, thresholds: Thresholds): Band {
 
 const questionKey = (index: number) => `rule_${index}`;
 
-export function buildQuestions(rules: Rule[]): Questions {
+const HUNK_TASK =
+    "Decide whether the lines ADDED in `hunk` (marked with '+') violate `rule`. " +
+    "Lines marked '-' were removed and lines marked ' ' are unchanged context: use them to understand the change, but do not judge them. " +
+    "Judge only the code shown; do not assume code that is not in the hunk.";
+
+const FILE_TASK =
+    "Decide whether the lines ADDED in `hunk` (marked with '+') violate `rule`. " +
+    "Lines marked '-' were removed and lines marked ' ' are unchanged context: use them to understand the change, but do not judge them. " +
+    "`file_content` is the whole current file with line numbers, so you can see checks, guards and definitions outside the hunk. " +
+    "Judge only the lines added in `hunk`, but answer with the whole file in view: code elsewhere in the file may already guard or define what the hunk does.";
+
+export function buildQuestions(rules: Rule[], withFile = false): Questions {
     const questions: Record<string, ReturnType<typeof noul>> = {};
     rules.forEach((rule, index) => {
         questions[questionKey(index)] = noul(
-            {
-                task:
-                    "Decide whether the lines ADDED in `hunk` (marked with '+') violate `rule`. " +
-                    "Lines marked '-' were removed and lines marked ' ' are unchanged context: use them to understand the change, but do not judge them. " +
-                    "Judge only the code shown; do not assume code that is not in the hunk.",
-                rule: { title: rule.title, violation: rule.description },
-            },
+            { task: withFile ? FILE_TASK : HUNK_TASK, rule: { title: rule.title, violation: rule.description } },
             {
                 true: "The added lines clearly break this rule.",
                 false: "The added lines comply with this rule, or do not touch anything the rule governs.",
@@ -108,6 +117,15 @@ export interface LintOptions {
     /** Stop after this many hunks (in diff order); the remainder is reported as not judged. */
     maxHunks?: number;
     context?: { title?: string; description?: string };
+    /** Supplies whole files for rules with `context: file`. Without it those rules see the hunk only. */
+    fileContext?: FileReader;
+    maxFileChars?: number;
+}
+
+interface Job {
+    hunk: Hunk;
+    rules: Rule[];
+    withFile: boolean;
 }
 
 export async function lintHunks(
@@ -116,7 +134,7 @@ export async function lintHunks(
     ruleSet: RuleSet,
     options: LintOptions = {}
 ): Promise<LintResult> {
-    const { concurrency = 4, maxHunks = 200, context } = options;
+    const { concurrency = 4, maxHunks = 200, context, fileContext, maxFileChars = DEFAULT_MAX_FILE_CHARS } = options;
 
     const planned = hunks
         .map((hunk) => ({ hunk, rules: applicableRules(ruleSet, hunk.file, triggerText(hunk)) }))
@@ -127,7 +145,10 @@ export async function lintHunks(
     const scores: Score[] = [];
     const failures: HunkFailure[] = [];
     const truncated: LintResult["truncated"] = [];
+    const contextNotes: LintResult["contextNotes"] = [];
     let questions = 0;
+    let inputTokens = 0;
+    let outputTokens = 0;
 
     if (planned.length > selected.length) {
         for (const skipped of planned.slice(maxHunks)) {
@@ -139,34 +160,70 @@ export async function lintHunks(
         }
     }
 
-    const outcomes = await mapPool(selected, concurrency, async ({ hunk, rules }) => {
+    // Rules that need only the hunk share one request. Rules with `context: file` get their own
+    // request carrying the whole file, so the extra tokens are spent only where asked for.
+    const jobs: Job[] = [];
+    const fileText = new Map<Job, string>();
+    for (const { hunk, rules } of selected) {
+        const hunkRules = rules.filter((r) => r.context !== "file");
+        const fileRules = rules.filter((r) => r.context === "file");
+        if (hunkRules.length > 0) jobs.push({ hunk, rules: hunkRules, withFile: false });
+        if (fileRules.length === 0) continue;
+
+        const content = fileContext?.(hunk.file);
+        if (content === undefined) {
+            contextNotes.push({ file: hunk.file, startLine: hunk.startLine, note: "file context unavailable; judged on the hunk only" });
+            jobs.push({ hunk, rules: fileRules, withFile: false });
+        } else {
+            const rendered = renderFileContext(content, hunk, maxFileChars);
+            if (rendered.windowed) {
+                contextNotes.push({ file: hunk.file, startLine: hunk.startLine, note: "file too large; judged with the head of the file and a window around the hunk" });
+            }
+            const job: Job = { hunk, rules: fileRules, withFile: true };
+            fileText.set(job, rendered.text);
+            jobs.push(job);
+        }
+    }
+
+    const outcomes = await mapPool(jobs, concurrency, async (job) => {
         try {
             const result = await client.systemOne({
                 state: {
                     pr_title: context?.title ?? "",
                     pr_description: context?.description ?? "",
-                    file: hunk.file,
-                    hunk: hunk.text,
+                    file: job.hunk.file,
+                    hunk: job.hunk.text,
+                    ...(job.withFile ? { file_content: fileText.get(job) } : {}),
                 },
-                questions: buildQuestions(rules),
+                questions: buildQuestions(job.rules, job.withFile),
             });
-            return { hunk, rules, result, error: null as string | null };
+            return { job, result, error: null as string | null };
         } catch (err) {
-            return { hunk, rules, result: null, error: err instanceof Error ? err.message : String(err) };
+            return { job, result: null, error: err instanceof Error ? err.message : String(err) };
         }
     });
 
-    for (const { hunk, rules, result, error } of outcomes) {
+    const failedHunks = new Set<Hunk>();
+    const truncatedSeen = new Set<Hunk>();
+    for (const { job, result, error } of outcomes) {
+        const { hunk, rules } = job;
         if (error || !result) {
+            failedHunks.add(hunk);
             failures.push({ file: hunk.file, startLine: hunk.startLine, error: error ?? "no result" });
             continue;
         }
-        if (hunk.truncated) truncated.push({ file: hunk.file, startLine: hunk.startLine });
+        if (hunk.truncated && !truncatedSeen.has(hunk)) {
+            truncatedSeen.add(hunk);
+            truncated.push({ file: hunk.file, startLine: hunk.startLine });
+        }
         questions += rules.length;
+        inputTokens += result.usage?.input_tokens ?? 0;
+        outputTokens += result.usage?.output_tokens ?? 0;
 
         rules.forEach((rule, i) => {
             const answer = result.answers[questionKey(i)];
             if (!answer || answer.type !== "noul" || typeof answer.noul !== "number") {
+                failedHunks.add(hunk);
                 failures.push({ file: hunk.file, startLine: hunk.startLine, error: `No answer for rule "${rule.id}".` });
                 return;
             }
@@ -194,7 +251,16 @@ export async function lintHunks(
         scores,
         failures,
         truncated,
-        stats: { hunks: hunks.length, hunksJudged: outcomes.filter((o) => !o.error).length, requests: selected.length, questions },
+        contextNotes,
+        stats: {
+            hunks: hunks.length,
+            hunksJudged: selected.filter((s) => !failedHunks.has(s.hunk)).length,
+            requests: jobs.length,
+            fileContextRequests: jobs.filter((j) => j.withFile).length,
+            questions,
+            inputTokens,
+            outputTokens,
+        },
     };
 }
 

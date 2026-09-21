@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { load } from "js-yaml";
 import { parseDiff, snippetToDiff } from "./diff.js";
 import { lintHunks, type SystemOneCaller } from "./lint.js";
+import type { FileReader } from "./context.js";
 import type { RuleSet } from "./rules.js";
 
 export interface EvalCase {
@@ -71,7 +72,8 @@ export async function runEval(client: SystemOneCaller, cases: EvalCase[], ruleSe
     // batched, and running them one at a time keeps an eval run gentle on rate limits.
     for (const c of cases) {
         const hunks = parseDiff(snippetToDiff(c.file, c.code, c.before));
-        const result = await lintHunks(client, hunks, ruleSet, { concurrency: 1 });
+        // a snippet case is the whole file, so file-context rules see exactly the snippet
+        const result = await lintHunks(client, hunks, ruleSet, { concurrency: 1, fileContext: (f) => (f === c.file ? c.code : undefined) });
         if (result.failures.length > 0) {
             failedCases.push(c.name);
             continue;
@@ -142,6 +144,9 @@ export interface SetReport {
     set: string;
     commits: number;
     requests: number;
+    fileRequests: number;
+    inputTokens: number;
+    outputTokens: number;
     unjudged: number;
     possible: number;
     genuineCaught: FindingLabel[];
@@ -175,7 +180,8 @@ export async function runHistoryEval(
     client: SystemOneCaller,
     ruleSet: RuleSet,
     labels: HistoryLabels,
-    diffFor: (commit: string) => string
+    diffFor: (commit: string) => string,
+    readerFor?: (commit: string) => FileReader
 ): Promise<SetReport[]> {
     const genuine = new Set(labels.genuine.map(labelKey));
     const falsePositive = new Set(labels.falsePositive.map(labelKey));
@@ -183,12 +189,15 @@ export async function runHistoryEval(
     const reports: SetReport[] = [];
 
     for (const [set, commits] of Object.entries(labels.sets)) {
-        const report: SetReport = { set, commits: commits.length, requests: 0, unjudged: 0, possible: 0, genuineCaught: [], genuineMissed: [], knownFalsePositives: [], unverified: [], unreviewed: [] };
+        const report: SetReport = { set, commits: commits.length, requests: 0, fileRequests: 0, inputTokens: 0, outputTokens: 0, unjudged: 0, possible: 0, genuineCaught: [], genuineMissed: [], knownFalsePositives: [], unverified: [], unreviewed: [] };
         const seen = new Set<string>();
 
         for (const commit of commits) {
-            const result = await lintHunks(client, parseDiff(diffFor(commit)), ruleSet);
+            const result = await lintHunks(client, parseDiff(diffFor(commit)), ruleSet, { fileContext: readerFor?.(commit) });
             report.requests += result.stats.requests;
+            report.fileRequests += result.stats.fileContextRequests;
+            report.inputTokens += result.stats.inputTokens;
+            report.outputTokens += result.stats.outputTokens;
             report.unjudged += result.failures.length;
             report.possible += result.findings.filter((f) => f.band === "possible").length;
 
@@ -214,7 +223,7 @@ export function formatHistoryEval(reports: SetReport[]): string {
     const out: string[] = [];
     const lbl = (l: FindingLabel) => `${l.commit} ${l.file} [${l.rule}]`;
     for (const r of reports) {
-        out.push(`== ${r.set}: ${r.commits} commit(s), ${r.requests} request(s), ${r.possible} possible, ${r.unjudged} hunk(s) not judged`);
+        out.push(`== ${r.set}: ${r.commits} commit(s), ${r.requests} request(s) (${r.fileRequests} with a whole file), ${r.inputTokens} input / ${r.outputTokens} output tokens, ${r.possible} possible, ${r.unjudged} hunk(s) not judged`);
         out.push(`   genuine caught: ${r.genuineCaught.length}   genuine missed: ${r.genuineMissed.length}   known false positives: ${r.knownFalsePositives.length}   unverified: ${r.unverified.length}   UNREVIEWED: ${r.unreviewed.length}`);
         for (const l of r.genuineMissed) out.push(`   MISSED     ${lbl(l)}`);
         for (const l of r.knownFalsePositives) out.push(`   known FP   ${lbl(l)}`);

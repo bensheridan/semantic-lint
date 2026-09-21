@@ -81,3 +81,13 @@ describe("parseTrigger", () => {
         expect(parseTrigger("/catch/i").test("CATCH")).toBe(true);
     });
 });
+
+describe("rule context", () => {
+    it('defaults to "hunk" and accepts "file"', () => {
+        const rs = parseRules("rules:\n  - {id: a, description: x}\n  - {id: b, description: y, context: file}");
+        expect(rs.rules.map((r) => r.context)).toEqual(["hunk", "file"]);
+    });
+    it("rejects anything else", () => {
+        expect(() => parseRules("rules:\n  - {id: a, description: x, context: page}")).toThrow(/context must be/);
+    });
+});

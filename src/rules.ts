@@ -18,6 +18,11 @@ export interface Rule {
     triggers: RegExp[];
     /** Optional template for the report message; falls back to the title. */
     message?: string;
+    /**
+     * What the model sees besides the hunk. "file" adds the whole current file (windowed if huge),
+     * for rules whose answer depends on a guard or definition elsewhere in the file. Costs more tokens.
+     */
+    context: "hunk" | "file";
 }
 
 export interface Thresholds {
@@ -90,6 +95,10 @@ export function parseRules(source: string): RuleSet {
         if (severity !== "error" && severity !== "warning") {
             throw new RulesError(`Rule "${id}": severity must be "error" or "warning".`);
         }
+        const context = r.context ?? "hunk";
+        if (context !== "hunk" && context !== "file") {
+            throw new RulesError(`Rule "${id}": context must be "hunk" or "file".`);
+        }
         const triggers = asStringArray(r.triggers, "triggers", id).map((pattern) => {
             try {
                 return parseTrigger(pattern);
@@ -106,6 +115,7 @@ export function parseRules(source: string): RuleSet {
             exclude: asStringArray(r.exclude, "exclude", id),
             triggers,
             message: typeof r.message === "string" ? r.message : undefined,
+            context,
         } satisfies Rule;
     });
 

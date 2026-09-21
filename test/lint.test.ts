@@ -94,7 +94,7 @@ describe("lintHunks", () => {
 });
 
 describe("exitCode", () => {
-    const result = (over: Partial<LintResult>): LintResult => ({ findings: [], scores: [], failures: [], truncated: [], stats: { hunks: 0, hunksJudged: 0, requests: 0, questions: 0 }, ...over });
+    const result = (over: Partial<LintResult>): LintResult => ({ findings: [], scores: [], failures: [], truncated: [], contextNotes: [], stats: { hunks: 0, hunksJudged: 0, requests: 0, fileContextRequests: 0, questions: 0, inputTokens: 0, outputTokens: 0 }, ...over });
     const finding = (severity: "error" | "warning", band: "violation" | "possible") =>
         ({ ruleId: "r", ruleTitle: "R", severity, file: "f", startLine: 1, endLine: 1, probability: 0.9, band, message: "m" }) as const;
 

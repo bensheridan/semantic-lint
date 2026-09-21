@@ -34,6 +34,42 @@ probability. `examples/eval-cases.yml` is a small **seed** set. Replace it with 
 from your own history, including near-misses (code that looks risky but is fine). The default
 thresholds (0.70 violation, 0.35 possible) are starting points, not validated values.
 
+## Whole-file context for rules that need it
+
+A hunk often does not show whether a control is guarded, because the guard is elsewhere in the
+file. Give such a rule `context: file` and its question is sent in a separate request that also
+carries the whole current file (numbered like the hunk, and windowed around the hunk if the file is
+very large). Rules without it stay on the hunk alone, so the extra tokens are spent only where you
+ask for them.
+
+```yaml
+- id: assumes-family-setup
+  context: file
+  description: ...
+```
+
+Where the file comes from: with `--base/--head` (and in the Action) it is read from git at the head
+ref; with `--diff-file` pass `--file-root <checkout>`. If it cannot be read, the rule is still asked
+on the hunk alone and the report says so (`NOTE ... file context unavailable`) instead of failing
+silently. A `--file-root` symlink or path that leaves the directory is refused, so a hostile PR
+cannot get local files sent to the API.
+
+Measured on 28 real Family hustle commits, same rules and wording, only the context changed:
+
+| | hunk only | `context: file` on 2 rules |
+|---|---|---|
+| Input tokens | 364,000 | 1,420,000 (3.9x) |
+| Violation-band false positives | up to 2, plus 1 unverified, varying by run | 0 (the unverified item cleared too) |
+| "Possible" findings | 27 | 12 to 15 |
+| Genuine finding still caught | yes | yes |
+
+At the rate implied by one usage dashboard (about $0.04 per million tokens, a rough blend, not a
+quote) that is roughly 1.5 cents versus 6 cents for all 28 commits. Both sets of commits had been
+read before, so treat it as evidence that the mechanism helps, not as a held-out score. Whole files
+also mean more of your code leaves your machine: only use `context: file` where the answer needs it.
+
+`semlint` prints the exact input and output tokens it used at the end of every run.
+
 ## Measure it on real history
 
 `eval` uses snippets you write, which tend to be easier than real code. `eval-history` re-runs the
@@ -141,3 +177,7 @@ src/report.ts   text, JSON, GitHub annotations, step summary
 src/eval.ts     labeled-case scoring
 src/cli.ts      command line
 ```
+
+## License
+
+MIT, see `LICENSE`.

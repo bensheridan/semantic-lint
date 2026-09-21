@@ -11,12 +11,14 @@ export function formatText(result: LintResult): string {
     for (const f of violations) out.push(`${f.severity.toUpperCase().padEnd(7)} ${location(f)}  [${f.ruleId}] ${f.message}`);
     for (const f of possible) out.push(`POSSIBLE ${location(f)}  [${f.ruleId}] ${f.message}`);
     for (const fail of result.failures) out.push(`NOT JUDGED ${fail.file}:${fail.startLine}  ${fail.error}`);
+    for (const n of result.contextNotes) out.push(`NOTE ${n.file}:${n.startLine}  ${n.note}`);
     for (const t of result.truncated) out.push(`TRUNCATED ${t.file}:${t.startLine}  hunk exceeded the size budget; its tail was not judged`);
 
     const { stats } = result;
     out.push(
         `\n${violations.length} violation(s), ${possible.length} possible, ${result.failures.length} hunk(s) not judged. ` +
-            `${stats.hunksJudged}/${stats.hunks} hunk(s) judged in ${stats.requests} request(s) (${stats.questions} question(s)).`
+            `${stats.hunksJudged}/${stats.hunks} hunk(s) judged in ${stats.requests} request(s) (${stats.fileContextRequests} with file context, ${stats.questions} question(s)). ` +
+            `Tokens: ${stats.inputTokens} in, ${stats.outputTokens} out.`
     );
     return out.join("\n");
 }
@@ -43,6 +45,9 @@ export function formatGithubAnnotations(result: LintResult): string {
     }
     for (const fail of result.failures) {
         lines.push(annotation("warning", fail, "semantic-lint: hunk not judged", fail.error));
+    }
+    for (const n of result.contextNotes) {
+        lines.push(annotation("notice", n, "semantic-lint: reduced context", n.note));
     }
     for (const t of result.truncated) {
         lines.push(annotation("notice", t, "semantic-lint: hunk truncated", "Hunk exceeded the size budget; its tail was not judged."));
