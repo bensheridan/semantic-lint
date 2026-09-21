@@ -41,7 +41,7 @@ export interface LintResult {
     truncated: { file: string; startLine: number }[];
     /** Where a "context: file" rule got less than the whole file, so it judged with reduced context. */
     contextNotes: { file: string; startLine: number; note: string }[];
-    stats: { hunks: number; hunksJudged: number; requests: number; fileContextRequests: number; questions: number; inputTokens: number; outputTokens: number };
+    stats: { hunks: number; hunksJudged: number; skipped: number; requests: number; fileContextRequests: number; questions: number; inputTokens: number; outputTokens: number };
 }
 
 /** Minimal surface of the SDK used here, so tests can inject a fake. */
@@ -255,6 +255,8 @@ export async function lintHunks(
         stats: {
             hunks: hunks.length,
             hunksJudged: selected.filter((s) => !failedHunks.has(s.hunk)).length,
+            /** Hunks no rule applied to (excluded file, path or trigger did not match): nothing to judge. */
+            skipped: hunks.length - planned.length,
             requests: jobs.length,
             fileContextRequests: jobs.filter((j) => j.withFile).length,
             questions,

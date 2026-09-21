@@ -12,7 +12,7 @@ const result: LintResult = {
     failures: [{ file: "src/d.ts", startLine: 5, error: "boom" }],
     truncated: [{ file: "src/e.ts", startLine: 1 }],
     contextNotes: [{ file: "src/f.ts", startLine: 7, note: "file context unavailable; judged on the hunk only" }],
-    stats: { hunks: 5, hunksJudged: 4, requests: 5, fileContextRequests: 1, questions: 9, inputTokens: 1200, outputTokens: 40 },
+    stats: { hunks: 5, hunksJudged: 4, skipped: 1, requests: 5, fileContextRequests: 1, questions: 9, inputTokens: 1200, outputTokens: 40 },
 };
 
 describe("formatGithubAnnotations", () => {
@@ -44,6 +44,7 @@ describe("formatText / formatMarkdownSummary", () => {
         expect(text).toContain("NOT JUDGED src/d.ts:5");
         expect(text).toContain("NOTE src/f.ts:7  file context unavailable");
         expect(text).toContain("Tokens: 1200 in, 40 out.");
+        expect(text).toContain("4 hunk(s) judged in 5 request(s), 1 skipped because no rule applies");
         expect(text).toContain("1 with file context");
         expect(formatMarkdownSummary(result)).toContain("### Not judged");
     });

@@ -1,0 +1,39 @@
+name: semantic-lint
+
+# Dogfood and end-to-end test of this repository's own action (uses: ./).
+# Needs a repository secret named TYPESAFE_API_KEY (Settings > Secrets and variables > Actions).
+#
+# pull_request, never pull_request_target: this job checks out and builds the PR's code while
+# holding a secret, which is only safe for pull requests from this repository.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: semantic-lint-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    # Secrets are not passed to workflows from forks, so skip them instead of failing with exit 2.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the base commit must exist for base...head and for git show
+
+      - uses: ./
+        with:
+          typesafe-api-key: ${{ secrets.TYPESAFE_API_KEY }}
+          rules: examples/semantic-lint.yml
+          # Read the rules from the base branch, so a PR cannot weaken its own gate.
+          rules-ref: ${{ github.event.pull_request.base.sha }}
+          base: ${{ github.event.pull_request.base.sha }}
+          head: ${{ github.event.pull_request.head.sha }}
+          fail-on: error

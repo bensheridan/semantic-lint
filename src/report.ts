@@ -17,7 +17,7 @@ export function formatText(result: LintResult): string {
     const { stats } = result;
     out.push(
         `\n${violations.length} violation(s), ${possible.length} possible, ${result.failures.length} hunk(s) not judged. ` +
-            `${stats.hunksJudged}/${stats.hunks} hunk(s) judged in ${stats.requests} request(s) (${stats.fileContextRequests} with file context, ${stats.questions} question(s)). ` +
+            `${stats.hunksJudged} hunk(s) judged in ${stats.requests} request(s), ${stats.skipped} skipped because no rule applies (${stats.fileContextRequests} with file context, ${stats.questions} question(s)). ` +
             `Tokens: ${stats.inputTokens} in, ${stats.outputTokens} out.`
     );
     return out.join("\n");
@@ -64,7 +64,7 @@ export function formatMarkdownSummary(result: LintResult): string {
     const parts = [
         "## Semantic lint",
         `**${violations.length}** violation(s), **${possible.length}** possible, **${result.failures.length}** hunk(s) not judged. ` +
-            `${result.stats.hunksJudged}/${result.stats.hunks} hunk(s) judged.`,
+            `${result.stats.hunksJudged} hunk(s) judged, ${result.stats.skipped} skipped because no rule applies.`,
         "### Violations",
         table(violations),
         "### Possible (not failing)",
